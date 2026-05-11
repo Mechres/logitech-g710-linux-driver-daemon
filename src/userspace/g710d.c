@@ -99,6 +99,10 @@ void load_config() {
         strtok(NULL, " \t\n\r");       // G
         char *token;
         while ((token = strtok(NULL, " \t\n\r")) != NULL) {
+            if (strcmp(token, "RELEASE") == 0) {
+                if (m->key_count < MAX_KEYS_PER_MACRO) m->keys[m->key_count++] = -2;
+                continue;
+            }
             int code = libevdev_event_code_from_name(EV_KEY, token);
             if (code != -1 && m->key_count < MAX_KEYS_PER_MACRO) {
                 m->keys[m->key_count++] = code;
@@ -123,12 +127,19 @@ void run_macro(struct libevdev_uinput *uidev, int g_key) {
         if (macros[i].profile == current_profile && macros[i].g_key == g_key) {
             printf("Executing macro for G%d (Profile %d)\n", g_key - KEY_F17 + 1, current_profile);
             
-            int held_modifiers[8];
+            int held_modifiers[16];
             int held_count = 0;
 
             for (int j = 0; j < macros[i].key_count; j++) {
                 int code = macros[i].keys[j];
-                if (is_modifier(code)) {
+
+                if (code == -2) { // Explicit RELEASE
+                    for (int k = held_count - 1; k >= 0; k--) {
+                        send_key(uidev, held_modifiers[k], 0);
+                        usleep(5000);
+                    }
+                    held_count = 0;
+                } else if (is_modifier(code)) {
                     send_key(uidev, code, 1);
                     held_modifiers[held_count++] = code;
                     usleep(5000);
@@ -137,6 +148,15 @@ void run_macro(struct libevdev_uinput *uidev, int g_key) {
                     usleep(10000);
                     send_key(uidev, code, 0);
                     usleep(10000);
+                    
+                    // Smart Auto-release: if next key is not a modifier, release current modifiers
+                    if (held_count > 0 && j + 1 < macros[i].key_count && !is_modifier(macros[i].keys[j+1]) && macros[i].keys[j+1] != -2) {
+                        for (int k = held_count - 1; k >= 0; k--) {
+                            send_key(uidev, held_modifiers[k], 0);
+                            usleep(5000);
+                        }
+                        held_count = 0;
+                    }
                 }
             }
 

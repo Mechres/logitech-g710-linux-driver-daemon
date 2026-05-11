@@ -37,29 +37,37 @@ You can manage the service using these commands:
 *   **Check Status/Logs:** `sudo systemctl status g710d`
 *   **View Debug Output:** `journalctl -u g710d -f`
 
-When running, M1, M2, and M3 keys will switch between three independent macro profiles, and the corresponding LEDs on the keyboard will update automatically.
+When running, M1, M2, and M3 keys will switch between three independent macro profiles, and the corresponding LEDs on the keyboard will update automatically. The daemon performs an **exclusive grab** on the special keys, so they will no longer trigger default system shortcuts (like opening settings).
 
 #### Features:
-*   **3 Independent Profiles:** Use **M1, M2, and M3** to switch between different sets of macros. The keyboard LEDs will update automatically.
-*   **Smart Combinations:** If a macro contains a modifier (like `KEY_LEFTCTRL`), it will be held down automatically while other keys in the sequence are pressed.
+*   **3 Independent Profiles:** Use **M1, M2, and M3** to switch macro sets.
+*   **Smart Combinations:** Modifiers (Ctrl, Alt, Shift, Meta) are held down automatically while other keys in the macro are pressed.
+*   **Smart Auto-Release:** If a macro contains a modifier followed by a sequence of regular keys, the daemon automatically releases the modifier when the sequence starts (e.g., `Alt+Q` followed by `R` will type `@R`).
 *   **Quick Reload:** Press the **MR** button on the keyboard to instantly reload the configuration file. The MR LED will flash to confirm.
 
 ### Configuration
 Macros are defined in `/etc/g710d.conf`.
 
 **Format:**
-`P<profile> G<key> <key_code1> <key_code2> ...`
+`P<profile> G<key> <key1> <key2> ...`
 
-**Example:**
+**Keywords:**
+*   `RELEASE`: Manually force all currently held modifiers to be released.
+
+**Examples:**
 <pre>
 # Profile 1 G1 sends 'ls' then Enter
 P1 G1 KEY_L KEY_S KEY_ENTER
 
-# Profile 1 G2 sends Ctrl+C
+# Profile 1 G2 sends Ctrl+C (Smart Holding)
 P1 G2 KEY_LEFTCTRL KEY_C
 
-# Profile 2 G1 sends Media Play/Pause
-P2 G1 KEY_PLAYPAUSE
+# Profile 1 G4 sends '@RENOXI' (Smart Auto-Release)
+# RightAlt+Q gives '@', then Alt is released before typing the rest.
+P1 G4 KEY_RIGHTALT KEY_Q KEY_R KEY_E KEY_N KEY_O KEY_X KEY_I
+
+# Manual control using RELEASE
+P1 G5 KEY_LEFTCTRL KEY_A RELEASE KEY_BACKSPACE
 </pre>
 
 A full list of available key codes can be found in `/usr/include/linux/input-event-codes.h` (remove the `KEY_` prefix or use the full name).

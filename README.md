@@ -1,4 +1,4 @@
-Logitech G710+ Keyboard Driver
+Logitech G710+ Keyboard Driver & Daemon
 ==========================
 
 The Logitech G710+ mechanical keyboard is a great piece of hardware. Unfortunately, there is no support in the kernel for the additional features of the keyboard.

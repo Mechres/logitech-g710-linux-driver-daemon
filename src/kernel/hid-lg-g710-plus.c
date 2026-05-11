@@ -17,17 +17,17 @@
 #include <linux/hid.h>
 #include <linux/input.h>
 #include <linux/device.h>
+#include <linux/jiffies.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/usb.h>
-#include <linux/version.h>
 
 #include "hid-ids.h"
-#include "usbhid/usbhid.h"
 
 #define USB_DEVICE_ID_LOGITECH_KEYBOARD_G710_PLUS 0xc24d
 
-// 20 seeconds timeout
-#define WAIT_TIME_OUT 20000
+/* 20 seconds timeout for report roundtrips. */
+#define WAIT_TIMEOUT_MS 20000
 
 #define LOGITECH_KEY_MAP_SIZE 16
 
@@ -70,7 +70,7 @@ struct lg_g710_plus_data {
     u8 led_macro; /* state of the M1-MR macro leds as returned by the keyboard ==> binary coded 0 -> 0xF*/
     u8 led_keys; /* state of the WASD key leds as returned by the keyboard  ==> 0 -> 4 */
 
-    spinlock_t lock; /* lock for communication with user space */
+    struct mutex lock; /* lock for communication with user space */
     struct completion ready; /* ready indicator */
 };
 
@@ -109,6 +109,8 @@ static int lg_g710_plus_extra_key_event(struct hid_device *hdev, struct hid_repo
 
 static int lg_g710_plus_extra_led_mr_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size) {
     struct lg_g710_plus_data* g710_data = lg_g710_plus_get_data(hdev);
+    if (g710_data == NULL || size < 2)
+        return 1;
     g710_data->led_macro= (data[1] >> 4) & 0xF;
     complete_all(&g710_data->ready);
     return 1;
@@ -116,6 +118,8 @@ static int lg_g710_plus_extra_led_mr_event(struct hid_device *hdev, struct hid_r
 
 static int lg_g710_plus_extra_led_keys_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size) {
     struct lg_g710_plus_data* g710_data = lg_g710_plus_get_data(hdev);
+    if (g710_data == NULL || size < 3)
+        return 1;
     g710_data->led_keys= data[1] << 4 | data[2];
     complete_all(&g710_data->ready);
     return 1;
@@ -146,11 +150,7 @@ enum req_type {
 };
 
 static void hidhw_request(struct hid_device *hdev, struct hid_report *report, enum req_type reqtype) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
     hid_hw_request(hdev, report, reqtype == REQTYPE_READ ? HID_REQ_GET_REPORT : HID_REQ_SET_REPORT);
-#else
-    usbhid_submit_report(hdev, report, reqtype == REQTYPE_READ ? USB_DIR_IN : USB_DIR_OUT);
-#endif
 }
 
 static int lg_g710_plus_initialize(struct hid_device *hdev) {
@@ -191,7 +191,7 @@ static struct lg_g710_plus_data* lg_g710_plus_create(struct hid_device *hdev)
     data->attr_group.attrs= lg_g710_plus_attrs;
     data->hdev= hdev;
 
-    spin_lock_init(&data->lock);
+    mutex_init(&data->lock);
     init_completion(&data->ready);
     return data;
 }
@@ -229,7 +229,6 @@ static int lg_g710_plus_probe(struct hid_device *hdev, const struct hid_device_i
 
     ret= lg_g710_plus_initialize(hdev);
     if (ret) {
-        ret = -ret;
         hid_hw_stop(hdev);
         goto err_free;
     }
@@ -257,47 +256,66 @@ static void lg_g710_plus_remove(struct hid_device *hdev)
     }
 }
 
+static struct lg_g710_plus_data *lg_g710_plus_data_from_dev(struct device *device)
+{
+    return hid_get_drvdata(to_hid_device(device));
+}
+
 static ssize_t lg_g710_plus_show_led_macro(struct device *device, struct device_attribute *attr, char *buf)
 {
-    struct lg_g710_plus_data* data = hid_get_drvdata(dev_get_drvdata(device->parent));
-    if (data != NULL) {
-        spin_lock(&data->lock);
-        init_completion(&data->ready);
-        hidhw_request(data->hdev, data->mr_buttons_led_report, REQTYPE_READ);
-        wait_for_completion_timeout(&data->ready, WAIT_TIME_OUT);
-        spin_unlock(&data->lock);
-        return sprintf(buf, "%d\n", data->led_macro);
+    struct lg_g710_plus_data *data = lg_g710_plus_data_from_dev(device);
+
+    if (data == NULL || data->mr_buttons_led_report == NULL)
+        return -ENODEV;
+
+    mutex_lock(&data->lock);
+    init_completion(&data->ready);
+    hidhw_request(data->hdev, data->mr_buttons_led_report, REQTYPE_READ);
+    if (!wait_for_completion_timeout(&data->ready, msecs_to_jiffies(WAIT_TIMEOUT_MS))) {
+        mutex_unlock(&data->lock);
+        return -ETIMEDOUT;
     }
-    return 0;
+    mutex_unlock(&data->lock);
+
+    return sysfs_emit(buf, "%d\n", data->led_macro);
 }
 
 static ssize_t lg_g710_plus_show_led_keys(struct device *device, struct device_attribute *attr, char *buf)
 {
-    struct lg_g710_plus_data* data = hid_get_drvdata(dev_get_drvdata(device->parent));
-    if (data != NULL) {
-        spin_lock(&data->lock);
-        init_completion(&data->ready);
-        hidhw_request(data->hdev, data->other_buttons_led_report, REQTYPE_READ);
-        wait_for_completion_timeout(&data->ready, WAIT_TIME_OUT);
-        spin_unlock(&data->lock);
-        return sprintf(buf, "%d\n", data->led_keys);
+    struct lg_g710_plus_data *data = lg_g710_plus_data_from_dev(device);
+
+    if (data == NULL || data->other_buttons_led_report == NULL)
+        return -ENODEV;
+
+    mutex_lock(&data->lock);
+    init_completion(&data->ready);
+    hidhw_request(data->hdev, data->other_buttons_led_report, REQTYPE_READ);
+    if (!wait_for_completion_timeout(&data->ready, msecs_to_jiffies(WAIT_TIMEOUT_MS))) {
+        mutex_unlock(&data->lock);
+        return -ETIMEDOUT;
     }
-    return 0;
+    mutex_unlock(&data->lock);
+
+    return sysfs_emit(buf, "%d\n", data->led_keys);
 }
 
 static ssize_t lg_g710_plus_store_led_macro(struct device *device, struct device_attribute *attr, const char *buf, size_t count)
 {
     unsigned long key_mask;
     int retval;
-    struct lg_g710_plus_data* data = hid_get_drvdata(dev_get_drvdata(device->parent));
+    struct lg_g710_plus_data *data = lg_g710_plus_data_from_dev(device);
+
+    if (data == NULL || data->mr_buttons_led_report == NULL)
+        return -ENODEV;
+
     retval = kstrtoul(buf, 10, &key_mask);
     if (retval)
         return retval;
 
-    spin_lock(&data->lock);
+    mutex_lock(&data->lock);
     data->mr_buttons_led_report->field[0]->value[0]= (key_mask & 0xF) << 4;
     hidhw_request(data->hdev, data->mr_buttons_led_report, REQTYPE_WRITE);
-    spin_unlock(&data->lock);
+    mutex_unlock(&data->lock);
     return count;
 }
 
@@ -306,7 +324,11 @@ static ssize_t lg_g710_plus_store_led_keys(struct device *device, struct device_
     int retval;
     unsigned long key_mask;
     u8 wasd_mask, keys_mask;
-    struct lg_g710_plus_data* data = hid_get_drvdata(dev_get_drvdata(device->parent));
+    struct lg_g710_plus_data *data = lg_g710_plus_data_from_dev(device);
+
+    if (data == NULL || data->other_buttons_led_report == NULL)
+        return -ENODEV;
+
     retval = kstrtoul(buf, 10, &key_mask);
     if (retval)
         return retval;
@@ -317,11 +339,11 @@ static ssize_t lg_g710_plus_store_led_keys(struct device *device, struct device_
     wasd_mask= wasd_mask > 4 ? 4 : wasd_mask;
     keys_mask= keys_mask > 4 ? 4 : keys_mask;
 
-    spin_lock(&data->lock);
+    mutex_lock(&data->lock);
     data->other_buttons_led_report->field[0]->value[0]= wasd_mask;
     data->other_buttons_led_report->field[0]->value[1]= keys_mask;
     hidhw_request(data->hdev, data->other_buttons_led_report, REQTYPE_WRITE);
-    spin_unlock(&data->lock);
+    mutex_unlock(&data->lock);
     return count;
 }
 

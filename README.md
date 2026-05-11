@@ -9,6 +9,18 @@ This kernel driver allows the keys M1-MR and G1-G6 to be used.
 Instalation Instructions
 -------------------------
 
+Quick install (recommended):
+<pre>
+./install.sh
+</pre>
+
+or, to skip udev rule installation:
+<pre>
+./install.sh --skip-udev
+</pre>
+
+Manual install:
+
 First you have to compile the driver:
 <pre>
 make

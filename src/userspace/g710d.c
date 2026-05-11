@@ -140,7 +140,6 @@ void run_macro(struct libevdev_uinput *uidev, int g_key) {
                 }
             }
 
-            // Release modifiers in reverse order
             for (int j = held_count - 1; j >= 0; j--) {
                 send_key(uidev, held_modifiers[j], 0);
                 usleep(5000);
@@ -170,7 +169,23 @@ int add_device(const char *path) {
 
     if (libevdev_get_id_vendor(dev) == VENDOR_ID &&
         libevdev_get_id_product(dev) == PRODUCT_ID) {
-        printf("Adding G710+ device: %s (%s)\n", path, libevdev_get_name(dev));
+        
+        const char *phys = libevdev_get_phys(dev);
+        int is_macro_interface = phys && strstr(phys, "/input1");
+
+        printf("Adding G710+ device: %s (%s) [Phys=%s] [%s]\n", 
+               path, libevdev_get_name(dev), phys ? phys : "N/A",
+               is_macro_interface ? "MACRO INTERFACE" : "MAIN KEYBOARD");
+        
+        if (is_macro_interface) {
+            rc = libevdev_grab(dev, LIBEVDEV_GRAB);
+            if (rc < 0) {
+                fprintf(stderr, "Warning: Failed to grab macro interface (%s)\n", strerror(-rc));
+            } else {
+                printf("Successfully grabbed macro interface for exclusive access.\n");
+            }
+        }
+
         struct libevdev_uinput *uidev;
         struct libevdev *vdev = libevdev_new();
         libevdev_set_name(vdev, "G710+ Virtual Macro Keyboard");
@@ -197,6 +212,9 @@ void find_all_g710_devices() {
 }
 
 int main(int argc, char **argv) {
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    setvbuf(stderr, NULL, _IOLBF, 0);
+
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     load_config();

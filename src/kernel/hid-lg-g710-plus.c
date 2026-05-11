@@ -142,15 +142,18 @@ static int lg_g710_plus_input_mapping(struct hid_device *hdev, struct hid_input 
     int i;
     struct lg_g710_plus_data* data = lg_g710_plus_get_data(hdev);
     if (data != NULL) {
-        if (data->input_dev == NULL) {
-            data->input_dev= hi->input;
+        // Only bind input_dev to the interface that has the extra keys (Report ID 3)
+        if (field->report->id == 3) {
+            data->input_dev = hi->input;
         }
         
-        /* Ensure the system knows we have these keys */
-        for (i = 0; i < LOGITECH_KEY_MAP_SIZE; i++) {
-            if (g710_plus_key_map[i] != 0) {
-                set_bit(EV_KEY, hi->input->evbit);
-                set_bit(g710_plus_key_map[i], hi->input->keybit);
+        /* Ensure the system knows we have these keys on THIS specific interface */
+        if (field->report->id == 3) {
+            for (i = 0; i < LOGITECH_KEY_MAP_SIZE; i++) {
+                if (g710_plus_key_map[i] != 0) {
+                    set_bit(EV_KEY, hi->input->evbit);
+                    set_bit(g710_plus_key_map[i], hi->input->keybit);
+                }
             }
         }
     }

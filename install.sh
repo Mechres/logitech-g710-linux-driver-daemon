@@ -35,11 +35,16 @@ if [[ "${EUID}" -ne 0 ]]; then
     exit 1
 fi
 
-echo "Building and installing module..."
+echo "Building and installing module and daemon..."
 make -C "${SCRIPT_DIR}" clean
 make -C "${SCRIPT_DIR}"
 make -C "${SCRIPT_DIR}" install
 depmod -a
+
+if [[ ! -f "/etc/g710d.conf" ]]; then
+    echo "Installing default configuration to /etc/g710d.conf..."
+    install -m 0644 "${SCRIPT_DIR}/g710d.conf.example" "/etc/g710d.conf"
+fi
 
 if [[ "${SKIP_UDEV}" -eq 0 ]]; then
     echo "Installing udev rule..."
@@ -49,6 +54,13 @@ if [[ "${SKIP_UDEV}" -eq 0 ]]; then
         udevadm control --reload-rules
         udevadm trigger --subsystem-match=hid
     fi
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+    echo "Enabling and starting g710d service..."
+    systemctl daemon-reload
+    systemctl enable g710d.service
+    systemctl restart g710d.service
 fi
 
 echo "Done."

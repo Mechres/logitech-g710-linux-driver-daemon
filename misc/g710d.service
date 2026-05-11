@@ -1,0 +1,11 @@
+[Unit]
+Description=Logitech G710+ Macro Daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/g710d
+Restart=always
+Type=simple
+
+[Install]
+WantedBy=multi-user.target

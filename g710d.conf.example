@@ -1,0 +1,16 @@
+# G710+ Macro Configuration
+# Format: P<profile> G<key> <key_code1> <key_code2> ...
+# Profile: 1-3, Key: 1-6
+
+# Profile 1: Standard shortcuts
+P1 G1 KEY_L KEY_S KEY_ENTER
+P1 G2 KEY_LEFTCTRL KEY_C
+P1 G3 KEY_LEFTCTRL KEY_V
+
+# Profile 2: Media/System
+P2 G1 KEY_PLAYPAUSE
+P2 G2 KEY_NEXTSONG
+P2 G3 KEY_PREVIOUSSONG
+
+# Profile 3: Custom
+P3 G1 KEY_GRAVE KEY_T KEY_O KEY_P KEY_ENTER

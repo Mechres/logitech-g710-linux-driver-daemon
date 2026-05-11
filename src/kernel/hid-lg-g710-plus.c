@@ -93,10 +93,12 @@ static int lg_g710_plus_extra_key_event(struct hid_device *hdev, struct hid_repo
     u16 keys_pressed;
     struct lg_g710_plus_data* g710_data = lg_g710_plus_get_data(hdev);
     if (g710_data == NULL || size < 3 || data[0] != 3) {
-        return 1; /* cannot handle the event */
+        return 0; 
     }
 
     keys_pressed= data[1] << 8 | data[2];
+    hid_info(hdev, "G710+ Key Event: %04x (previous: %04x)\n", keys_pressed, g710_data->macro_button_state);
+
     for (i = 0; i < LOGITECH_KEY_MAP_SIZE; i++) {
         if (g710_plus_key_map[i] != 0 && (BIT_AT(keys_pressed, i) != BIT_AT(g710_data->macro_button_state, i))) {
             input_report_key(g710_data->input_dev, g710_plus_key_map[i], BIT_AT(keys_pressed, i) != 0);
@@ -110,7 +112,7 @@ static int lg_g710_plus_extra_key_event(struct hid_device *hdev, struct hid_repo
 static int lg_g710_plus_extra_led_mr_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size) {
     struct lg_g710_plus_data* g710_data = lg_g710_plus_get_data(hdev);
     if (g710_data == NULL || size < 2)
-        return 1;
+        return 0;
     g710_data->led_macro= (data[1] >> 4) & 0xF;
     complete_all(&g710_data->ready);
     return 1;
@@ -119,7 +121,7 @@ static int lg_g710_plus_extra_led_mr_event(struct hid_device *hdev, struct hid_r
 static int lg_g710_plus_extra_led_keys_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size) {
     struct lg_g710_plus_data* g710_data = lg_g710_plus_get_data(hdev);
     if (g710_data == NULL || size < 3)
-        return 1;
+        return 0;
     g710_data->led_keys= data[1] << 4 | data[2];
     complete_all(&g710_data->ready);
     return 1;
@@ -137,9 +139,20 @@ static int lg_g710_plus_raw_event(struct hid_device *hdev, struct hid_report *re
 
 static int lg_g710_plus_input_mapping(struct hid_device *hdev, struct hid_input *hi, struct hid_field *field, struct hid_usage *usage, unsigned long **bit, int *max) 
 {
+    int i;
     struct lg_g710_plus_data* data = lg_g710_plus_get_data(hdev);
-    if (data != NULL && data->input_dev == NULL) {
-        data->input_dev= hi->input;
+    if (data != NULL) {
+        if (data->input_dev == NULL) {
+            data->input_dev= hi->input;
+        }
+        
+        /* Ensure the system knows we have these keys */
+        for (i = 0; i < LOGITECH_KEY_MAP_SIZE; i++) {
+            if (g710_plus_key_map[i] != 0) {
+                set_bit(EV_KEY, hi->input->evbit);
+                set_bit(g710_plus_key_map[i], hi->input->keybit);
+            }
+        }
     }
     return 0;
 }
@@ -170,7 +183,10 @@ static int lg_g710_plus_initialize(struct hid_device *hdev) {
             case 8: data->other_buttons_led_report= report; break;
             case 9:
                 data->g_mr_buttons_support_report= report;
+                /* Zero out the 12-byte report to disable G1-G6 ghost numbers */
+                memset(report->field[0]->value, 0, report->field[0]->report_count * sizeof(s32));
                 hidhw_request(hdev, report, REQTYPE_WRITE);
+                hid_info(hdev, "G710+ Initialization: Sent ghost-disable command.\n");
                 break;
         }
     }

@@ -63,6 +63,16 @@ void send_key(struct libevdev_uinput *uidev, int code, int value) {
     libevdev_uinput_write_event(uidev, EV_SYN, SYN_REPORT, 0);
 }
 
+int is_macro_control_key(int code) {
+    return code >= KEY_F13 && code <= KEY_F22;
+}
+
+void forward_key_event(struct libevdev_uinput *uidev, int code, int value) {
+    if (!uidev) return;
+    libevdev_uinput_write_event(uidev, EV_KEY, code, value);
+    libevdev_uinput_write_event(uidev, EV_SYN, SYN_REPORT, 0);
+}
+
 #define MAX_MACROS 100
 #define MAX_KEYS_PER_MACRO 32
 
@@ -362,19 +372,26 @@ int main(int argc, char **argv) {
                             status = libevdev_next_event(devices[i].dev, LIBEVDEV_READ_FLAG_SYNC, &ev);
                             continue;
                         }
-                        if (ev.type == EV_KEY && ev.value == 1) {
-                            if (ev.code >= KEY_F13 && ev.code <= KEY_F15) {
-                                current_profile = ev.code - KEY_F13 + 1;
-                                printf("Switched to Profile %d\n", current_profile);
-                                set_profile_led(current_profile, 0);
-                            } else if (ev.code == KEY_F16) {
-                                printf("MR pressed: Reloading configuration...\n");
-                                set_profile_led(current_profile, 1);
-                                load_config();
-                                usleep(200000);
-                                set_profile_led(current_profile, 0);
-                            } else if (ev.code >= KEY_F17 && ev.code <= KEY_F22) {
-                                run_macro(macro_uidev, ev.code);
+                        if (ev.type == EV_KEY) {
+                            if (is_macro_control_key(ev.code)) {
+                                if (ev.value == 1) {
+                                    if (ev.code >= KEY_F13 && ev.code <= KEY_F15) {
+                                        current_profile = ev.code - KEY_F13 + 1;
+                                        printf("Switched to Profile %d\n", current_profile);
+                                        set_profile_led(current_profile, 0);
+                                    } else if (ev.code == KEY_F16) {
+                                        printf("MR pressed: Reloading configuration...\n");
+                                        set_profile_led(current_profile, 1);
+                                        load_config();
+                                        usleep(200000);
+                                        set_profile_led(current_profile, 0);
+                                    } else if (ev.code >= KEY_F17 && ev.code <= KEY_F22) {
+                                        run_macro(macro_uidev, ev.code);
+                                    }
+                                }
+                            } else {
+                                /* Keep media/volume and other non-macro keys working while grabbed. */
+                                forward_key_event(macro_uidev, ev.code, ev.value);
                             }
                         }
                         status = libevdev_next_event(devices[i].dev, LIBEVDEV_READ_FLAG_NORMAL, &ev);

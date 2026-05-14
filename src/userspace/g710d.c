@@ -259,21 +259,25 @@ int add_device(const char *path) {
         int has_typing_keys = libevdev_has_event_code(dev, EV_KEY, KEY_A) &&
                               libevdev_has_event_code(dev, EV_KEY, KEY_Z) &&
                               libevdev_has_event_code(dev, EV_KEY, KEY_SPACE);
-        int grab_safe = !has_typing_keys || (phys && strstr(phys, "/input1"));
+        int is_dedicated_macro = !has_typing_keys || (phys && strstr(phys, "/input1"));
 
         printf("Adding G710+ macro-capable device: %s (%s) [Phys=%s] [%s]\n",
                path,
                libevdev_get_name(dev),
                phys ? phys : "N/A",
-               grab_safe ? "grab=yes" : "grab=no");
+               is_dedicated_macro ? "use=yes" : "use=no");
 
-        if (grab_safe) {
-            rc = libevdev_grab(dev, LIBEVDEV_GRAB);
-            if (rc < 0) {
-                fprintf(stderr, "Warning: Failed to grab macro interface (%s)\n", strerror(-rc));
-            } else {
-                printf("Successfully grabbed macro interface for exclusive access.\n");
-            }
+        if (!is_dedicated_macro) {
+            libevdev_free(dev);
+            close(fd);
+            return -1;
+        }
+
+        rc = libevdev_grab(dev, LIBEVDEV_GRAB);
+        if (rc < 0) {
+            fprintf(stderr, "Warning: Failed to grab macro interface (%s)\n", strerror(-rc));
+        } else {
+            printf("Successfully grabbed macro interface for exclusive access.\n");
         }
 
         if (macro_uidev == NULL) {
